@@ -242,6 +242,9 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);fon
 .zoom-nav-btn{font-size:12px;padding:3px 8px;border:1px solid var(--border);border-radius:5px;background:var(--surface);color:var(--text);cursor:pointer;font-family:'DM Sans',sans-serif;line-height:1}
 .zoom-nav-btn:hover{background:var(--surface2)}
 .zoom-nav-label{font-size:10px;color:var(--text2);min-width:80px;text-align:center;font-family:'DM Mono',monospace}
+#teamLoginScreen{position:fixed;inset:0;background:rgba(245,244,240,.97);z-index:8500;display:none;align-items:center;justify-content:center;backdrop-filter:blur(4px)}
+#teamLoginScreen.show{display:flex}
+.session-hint{font-size:11px;color:var(--text3);margin-top:14px;line-height:1.5}
 </style>
 </head>
 <body>
@@ -260,10 +263,24 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);fon
     </div>
     <label class="flbl" style="margin-top:12px">URL del Web App (Apps Script)</label>
     <input class="setup-inp" id="setupUrl" placeholder="https://script.google.com/macros/s/...">
-    <label class="flbl">Contraseña de administrador</label>
-    <input class="setup-inp" type="password" id="setupAdminPw" placeholder="Elige una contraseña segura">
+    <label class="flbl">Contraseña de equipo <span style="font-weight:400;color:var(--text3)">(para todos — ver y actualizar tareas)</span></label>
+    <input class="setup-inp" type="password" id="setupTeamPw" placeholder="Ej: cierre2026 — la misma para todo el equipo">
+    <label class="flbl">Contraseña de administrador <span style="font-weight:400;color:var(--text3)">(solo para gestionar tareas y personas)</span></label>
+    <input class="setup-inp" type="password" id="setupAdminPw" placeholder="Más segura, distinta a la de equipo">
     <button class="setup-btn" onclick="completeSetup()">Guardar y conectar →</button>
     <div class="setup-err" id="setupErr"></div>
+  </div>
+</div>
+
+<div id="teamLoginScreen">
+  <div class="login-card">
+    <div style="font-size:32px;margin-bottom:8px">🔐</div>
+    <h2>FP&A Planner</h2>
+    <p style="font-size:12px;color:#6b6960;margin-bottom:22px">Ingresa la contraseña de equipo para continuar</p>
+    <input class="login-inp" type="password" id="teamLoginPw" placeholder="Contraseña de equipo" onkeydown="if(event.key==='Enter')doTeamLogin()">
+    <button class="login-btn" onclick="doTeamLogin()">Ingresar</button>
+    <div class="login-err" id="teamLoginErr">Contraseña incorrecta</div>
+    <div class="session-hint">Tu sesión se recordará por 30 días en este dispositivo.</div>
   </div>
 </div>
 
@@ -568,6 +585,9 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);fon
 <script>
 let GS_URL = localStorage.getItem('gs_url') || '';
 let ADMIN_HASH = localStorage.getItem('admin_hash') || '';
+let TEAM_HASH = localStorage.getItem('team_hash') || '';
+let TEAM_SESSION_TS = parseInt(localStorage.getItem('team_session_ts') || '0');
+const SESSION_DURATION = 30 * 24 * 60 * 60 * 1000;
 
 let TASKS=[], PEOPLE={}, DEPS={}, STATUSES={}, TIMESTAMPS={};
 let ALL_TIMESTAMPS = [];
@@ -700,15 +720,21 @@ async function gsCall(action, payload={}) {
 }
 
 async function completeSetup() {
-  const url = document.getElementById('setupUrl').value.trim();
-  const pw  = document.getElementById('setupAdminPw').value;
-  const err = document.getElementById('setupErr');
-  if(!url||!pw){ err.textContent='Completa todos los campos'; err.style.display='block'; return; }
+  const url     = document.getElementById('setupUrl').value.trim();
+  const teamPw  = document.getElementById('setupTeamPw').value;
+  const adminPw = document.getElementById('setupAdminPw').value;
+  const err     = document.getElementById('setupErr');
+  if(!url||!teamPw||!adminPw){ err.textContent='Completa todos los campos'; err.style.display='block'; return; }
   GS_URL = url;
   localStorage.setItem('gs_url', url);
-  const hash = await hashStr(pw);
-  ADMIN_HASH = hash;
-  localStorage.setItem('admin_hash', hash);
+  const teamHash  = await hashStr(teamPw);
+  const adminHash = await hashStr(adminPw);
+  TEAM_HASH  = teamHash;
+  ADMIN_HASH = adminHash;
+  localStorage.setItem('team_hash',  teamHash);
+  localStorage.setItem('admin_hash', adminHash);
+  TEAM_SESSION_TS = Date.now();
+  localStorage.setItem('team_session_ts', String(TEAM_SESSION_TS));
   document.getElementById('setupScreen').style.display = 'none';
   await initApp();
 }
@@ -1201,9 +1227,31 @@ function setPerson(p){ activePerson=p; renderGantt(); }
 
 function showToast(msg,ms=4000,isErr=false){ const el=document.getElementById('unlockToast');el.textContent=msg;el.style.background=isErr?'var(--late-light)':'#f0fdf4';el.style.borderColor=isErr?'#fca5a5':'#86efac';el.style.color=isErr?'var(--late)':'#15803d';el.className='unlock-toast show';setTimeout(()=>{el.className='unlock-toast';},ms); }
 
+async function doTeamLogin(){
+  const pw=document.getElementById('teamLoginPw').value;
+  const hash=await hashStr(pw);
+  if(hash===TEAM_HASH){
+    TEAM_SESSION_TS=Date.now();
+    localStorage.setItem('team_session_ts',String(TEAM_SESSION_TS));
+    document.getElementById('teamLoginScreen').classList.remove('show');
+    await initApp();
+  } else {
+    document.getElementById('teamLoginErr').style.display='block';
+  }
+}
+
 (async function boot(){
-  if(!GS_URL){ document.getElementById('setupScreen').style.display='flex'; }
-  else { await initApp(); }
+  if(!GS_URL||!TEAM_HASH){
+    const el=document.getElementById('setupUrl');
+    if(el&&GS_URL) el.value=GS_URL;
+    document.getElementById('setupScreen').style.display='flex';
+  } else if(TEAM_SESSION_TS&&(Date.now()-TEAM_SESSION_TS)<SESSION_DURATION){
+    await initApp();
+  } else {
+    document.getElementById('teamLoginPw').value='';
+    document.getElementById('teamLoginErr').style.display='none';
+    document.getElementById('teamLoginScreen').classList.add('show');
+  }
 })();
 </script>
 </body>
