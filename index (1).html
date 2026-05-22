@@ -752,7 +752,7 @@ function applyData(data) {
   PEOPLE = {};
   (data.people||SEED_PEOPLE).forEach(p=>{ PEOPLE[p.key]={name:p.name,team:p.team}; });
   DEPS = {};
-  (data.deps||[]).forEach(d=>{ if(!DEPS[d.task_id]) DEPS[d.task_id]=[]; DEPS[d.task_id].push(d.dep_id); });
+  (data.deps||[]).forEach(d=>{ const tid=Number(d.task_id); if(!DEPS[tid]) DEPS[tid]=[]; DEPS[tid].push(Number(d.dep_id)); });
   if(!data.deps||!data.deps.length) DEPS = JSON.parse(JSON.stringify(SEED_DEPS));
 
   ALL_STATUSES   = data.statuses   || [];
@@ -793,7 +793,7 @@ function getTodayDay(){ const today=new Date(); const [y,m]=currentMonth.split('
 function wdToCalDay(wd){ const [y,m]=currentMonth.split('-').map(Number); let count=0,d=1,total=getMonthDays(); while(d<=total){ const dt=new Date(y,m-1,d); if(dt.getDay()!==0&&dt.getDay()!==6){count++;if(count===wd)return d;} d++; } return Math.min(Math.round(wd*1.4),total); }
 function wdToDate(wd){ const [y,m]=currentMonth.split('-').map(Number); return new Date(y,m-1,wdToCalDay(wd)); }
 function calLabel(wd){ const [y,m]=currentMonth.split('-').map(Number); const mns=['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic']; return wdToCalDay(wd)+' '+mns[m-1]; }
-function changeMonth(){ currentMonth=document.getElementById('monthSel').value; if(viewDays){const TOTAL=getMonthDays(),todayD=getTodayDay();viewStart=todayD>0?Math.max(1,Math.min(todayD-Math.floor(viewDays/2),TOTAL-viewDays+1)):1;} if(ALL_STATUSES.length) { STATUSES={}; ALL_STATUSES.filter(s=>s.month===currentMonth||!s.month).forEach(s=>{STATUSES[Number(s.task_id)]=s.status;}); TIMESTAMPS={}; ALL_TIMESTAMPS.filter(t=>t.month===currentMonth||!t.month).forEach(t=>{TIMESTAMPS[Number(t.task_id)]={ts_inicio:t.ts_inicio,ts_fin:t.ts_fin};}); } renderAll(); }
+function changeMonth(){ currentMonth=document.getElementById('monthSel').value; remindSentSet=new Set(); if(viewDays){const TOTAL=getMonthDays(),todayD=getTodayDay();viewStart=todayD>0?Math.max(1,Math.min(todayD-Math.floor(viewDays/2),TOTAL-viewDays+1)):1;} if(ALL_STATUSES.length) { STATUSES={}; ALL_STATUSES.filter(s=>s.month===currentMonth||!s.month).forEach(s=>{STATUSES[Number(s.task_id)]=s.status;}); TIMESTAMPS={}; ALL_TIMESTAMPS.filter(t=>t.month===currentMonth||!t.month).forEach(t=>{TIMESTAMPS[Number(t.task_id)]={ts_inicio:t.ts_inicio,ts_fin:t.ts_fin};}); } renderAll(); }
 
 function getStatus(id){ const s=STATUSES[id]; if(s==='done') return 'done'; if(s==='prog') return 'prog'; const t=TASKS.find(x=>x.id===id); if(!t) return 'blocked'; const taskDeps=DEPS[id]||[]; if(!taskDeps.every(d=>getStatus(d)==='done')) return 'blocked'; const today=getTodayDay(); if(today>0&&today>wdToCalDay(t.dend)) return 'late'; return 'avail'; }
 const SL={done:'Completada',prog:'En progreso',avail:'Disponible',blocked:'Bloqueada',late:'Vencida'};

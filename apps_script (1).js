@@ -35,7 +35,7 @@ function ensureHeaders() {
 // ── CORS helper ───────────────────────────────────────────────
 function ok(data) {
   return ContentService
-    .createTextOutput(JSON.stringify({ ok: true, ...data }))
+    .createTextOutput(JSON.stringify({ ok: true, data: data }))
     .setMimeType(ContentService.MimeType.JSON);
 }
 
@@ -91,25 +91,14 @@ function sheetToObjects(name) {
 // ── getAll ────────────────────────────────────────────────────
 function actionGetAll() {
   const tasks      = sheetToObjects('tasks');
-  const peopleArr  = sheetToObjects('people');
-  const depsArr    = sheetToObjects('deps');
+  const people     = sheetToObjects('people');   // array [{key,name,team}]
+  const deps       = sheetToObjects('deps');      // array [{task_id,dep_id}]
   const statuses   = sheetToObjects('statuses');
   const timestamps = sheetToObjects('timestamps');
 
-  // Convertir people array → objeto { key: {name,team} }
-  const people = {};
-  peopleArr.forEach(p => { people[p.key] = { name: p.name, team: p.team }; });
-
-  // Convertir deps array → objeto { task_id: [dep_id, ...] }
-  const deps = {};
-  depsArr.forEach(d => {
-    const tid = Number(d.task_id);
-    if (!deps[tid]) deps[tid] = [];
-    deps[tid].push(Number(d.dep_id));
-  });
-
-  // Forzar task_id como número en tasks, statuses y timestamps
-  tasks.forEach(t => { t.task_id = Number(t.task_id); t.id = Number(t.task_id || t.id); });
+  // Normalizar IDs a Number para comparaciones en el frontend
+  tasks.forEach(t => { t.id = Number(t.task_id || t.id); t.task_id = t.id; });
+  deps.forEach(d => { d.task_id = Number(d.task_id); d.dep_id = Number(d.dep_id); });
   statuses.forEach(s => { s.task_id = Number(s.task_id); });
   timestamps.forEach(t => { t.task_id = Number(t.task_id); });
 
@@ -221,11 +210,22 @@ function actionSwapAssign(p) {
   const assignNameCol = headers.indexOf('assignName') + 1;
   if (sh.getLastRow() < 2) return ok({});
 
+  // Buscar nombres actuales en la hoja de personas
+  const allPeople = sheetToObjects('people');
+  const fromPerson = allPeople.find(x => x.key === p.from);
+  const toPerson   = allPeople.find(x => x.key === p.to);
+  const fromName   = fromPerson ? fromPerson.name : p.from;
+  const toName     = toPerson   ? toPerson.name   : p.to;
+
   const data = sh.getRange(2, 1, sh.getLastRow()-1, sh.getLastColumn()).getValues();
   data.forEach((row, i) => {
-    if (String(row[assignCol-1]) === String(p.from)) {
+    const assign = String(row[assignCol-1]);
+    if (assign === String(p.from)) {
       sh.getRange(i+2, assignCol).setValue(p.to);
-      // No actualizamos assignName aquí; el planner lo resuelve desde PEOPLE
+      if (assignNameCol > 0) sh.getRange(i+2, assignNameCol).setValue(toName);
+    } else if (assign === String(p.to)) {
+      sh.getRange(i+2, assignCol).setValue(p.from);
+      if (assignNameCol > 0) sh.getRange(i+2, assignNameCol).setValue(fromName);
     }
   });
   return ok({});
