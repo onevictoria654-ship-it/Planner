@@ -234,6 +234,14 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);fon
 .section-title{font-size:13px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.05em;margin-bottom:12px}
 .empty-msg{text-align:center;padding:40px 0;color:var(--text3);font-size:13px}
 .role-badge{font-size:10px;font-weight:600;padding:2px 8px;border-radius:10px;background:var(--late-light);color:var(--late);margin-left:4px}
+.zoom-row{display:flex;gap:2px;align-items:center;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r);padding:3px}
+.zoom-btn{font-size:12px;font-weight:500;padding:4px 10px;border-radius:6px;border:none;background:transparent;color:var(--text2);cursor:pointer;font-family:'DM Sans',sans-serif;transition:all .12s}
+.zoom-btn.active{background:var(--surface);color:var(--accent);font-weight:600;box-shadow:0 1px 2px rgba(0,0,0,.08)}
+.zoom-btn:hover:not(.active){background:rgba(0,0,0,.04);color:var(--text)}
+.zoom-nav{display:flex;align-items:center;gap:3px;padding-left:6px;border-left:1px solid var(--border);margin-left:2px}
+.zoom-nav-btn{font-size:12px;padding:3px 8px;border:1px solid var(--border);border-radius:5px;background:var(--surface);color:var(--text);cursor:pointer;font-family:'DM Sans',sans-serif;line-height:1}
+.zoom-nav-btn:hover{background:var(--surface2)}
+.zoom-nav-label{font-size:10px;color:var(--text2);min-width:80px;text-align:center;font-family:'DM Mono',monospace}
 </style>
 </head>
 <body>
@@ -289,6 +297,16 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);fon
     <button class="htab htab-admin" onclick="requestAdmin()">⚙ Admin</button>
   </nav>
   <div class="header-right">
+    <div class="zoom-row">
+      <button class="zoom-btn" id="zb1S" onclick="setZoom(7)">1S</button>
+      <button class="zoom-btn" id="zb2S" onclick="setZoom(14)">2S</button>
+      <button class="zoom-btn active" id="zbMes" onclick="setZoom(null)">Mes</button>
+      <span class="zoom-nav" id="zoomNav" style="display:none">
+        <button class="zoom-nav-btn" onclick="navZoom(-1)">◄</button>
+        <span class="zoom-nav-label" id="zoomLabel"></span>
+        <button class="zoom-nav-btn" onclick="navZoom(1)">►</button>
+      </span>
+    </div>
     <select class="month-sel" id="monthSel" onchange="changeMonth()">
       <option value="2026-01">Enero 2026</option><option value="2026-02">Febrero 2026</option>
       <option value="2026-03">Marzo 2026</option><option value="2026-04">Abril 2026</option>
@@ -563,6 +581,7 @@ let collapsedPhases = new Set();
 let remindTaskId = null, remindSentSet = new Set();
 let chartsHorario = {};
 let isOffline = false;
+let viewDays=null, viewStart=1;
 
 const SEED_TASKS = [
   {id:1,team:'FBP',phase:'Pre cierre',name:'Análisis cierre gastos — CH',assign:'rvelasquezg',assignName:'R. Velásquez',dstart:1,dend:3,horas:null},
@@ -774,7 +793,7 @@ function getTodayDay(){ const today=new Date(); const [y,m]=currentMonth.split('
 function wdToCalDay(wd){ const [y,m]=currentMonth.split('-').map(Number); let count=0,d=1,total=getMonthDays(); while(d<=total){ const dt=new Date(y,m-1,d); if(dt.getDay()!==0&&dt.getDay()!==6){count++;if(count===wd)return d;} d++; } return Math.min(Math.round(wd*1.4),total); }
 function wdToDate(wd){ const [y,m]=currentMonth.split('-').map(Number); return new Date(y,m-1,wdToCalDay(wd)); }
 function calLabel(wd){ const [y,m]=currentMonth.split('-').map(Number); const mns=['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic']; return wdToCalDay(wd)+' '+mns[m-1]; }
-function changeMonth(){ currentMonth=document.getElementById('monthSel').value; if(ALL_STATUSES.length) { STATUSES={}; ALL_STATUSES.filter(s=>s.month===currentMonth||!s.month).forEach(s=>{STATUSES[Number(s.task_id)]=s.status;}); TIMESTAMPS={}; ALL_TIMESTAMPS.filter(t=>t.month===currentMonth||!t.month).forEach(t=>{TIMESTAMPS[Number(t.task_id)]={ts_inicio:t.ts_inicio,ts_fin:t.ts_fin};}); } renderAll(); }
+function changeMonth(){ currentMonth=document.getElementById('monthSel').value; if(viewDays){const TOTAL=getMonthDays(),todayD=getTodayDay();viewStart=todayD>0?Math.max(1,Math.min(todayD-Math.floor(viewDays/2),TOTAL-viewDays+1)):1;} if(ALL_STATUSES.length) { STATUSES={}; ALL_STATUSES.filter(s=>s.month===currentMonth||!s.month).forEach(s=>{STATUSES[Number(s.task_id)]=s.status;}); TIMESTAMPS={}; ALL_TIMESTAMPS.filter(t=>t.month===currentMonth||!t.month).forEach(t=>{TIMESTAMPS[Number(t.task_id)]={ts_inicio:t.ts_inicio,ts_fin:t.ts_fin};}); } renderAll(); }
 
 function getStatus(id){ const s=STATUSES[id]; if(s==='done') return 'done'; if(s==='prog') return 'prog'; const t=TASKS.find(x=>x.id===id); if(!t) return 'blocked'; const taskDeps=DEPS[id]||[]; if(!taskDeps.every(d=>getStatus(d)==='done')) return 'blocked'; const today=getTodayDay(); if(today>0&&today>wdToCalDay(t.dend)) return 'late'; return 'avail'; }
 const SL={done:'Completada',prog:'En progreso',avail:'Disponible',blocked:'Bloqueada',late:'Vencida'};
@@ -818,6 +837,22 @@ function renderStats(){ const c=computeStats(TASKS); document.getElementById('st
 
 function renderGantt(){
   const TOTAL=getMonthDays(), todayD=getTodayDay();
+  const VDAYS=viewDays||TOTAL;
+  const VSTART=viewDays?Math.max(1,viewStart):1;
+  const VEND=Math.min(VSTART+VDAYS-1,TOTAL);
+
+  ['zbMes','zb2S','zb1S'].forEach(id=>{const el=document.getElementById(id);if(el)el.classList.remove('active');});
+  const zbEl=document.getElementById(viewDays===7?'zb1S':viewDays===14?'zb2S':'zbMes');
+  if(zbEl)zbEl.classList.add('active');
+  const znav=document.getElementById('zoomNav');
+  if(znav)znav.style.display=viewDays?'flex':'none';
+  if(viewDays){
+    const mns=['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+    const [,m]=currentMonth.split('-').map(Number);
+    const lbl=document.getElementById('zoomLabel');
+    if(lbl)lbl.textContent=`${VSTART}–${VEND} ${mns[m-1]}`;
+  }
+
   const persons=[...new Set(TASKS.map(t=>t.assign))].sort();
   let fh=`<label>Equipo:</label>`;
   ['all','FBP','Costos','Consolidación'].forEach(t=>{
@@ -835,12 +870,12 @@ function renderGantt(){
 
   const tC={FBP:'var(--fbp)',Costos:'var(--costos)',Consolidación:'var(--cons)'};
   const tB={FBP:'var(--fbp-light)',Costos:'var(--costos-light)',Consolidación:'var(--cons-light)'};
-  const todayPct=todayD>0?((todayD-0.5)/TOTAL*100).toFixed(2):-1;
+  const todayPct=(todayD>0&&todayD>=VSTART&&todayD<=VEND)?((todayD-VSTART+0.5)/VDAYS*100).toFixed(2):-1;
 
   let days='';
-  for(let d=1;d<=TOTAL;d++){ const we=isWeekend(d),td=d===todayD; days+=`<div class="gantt-day${we?' weekend':''}${td?' today':''}" style="--td:${TOTAL}">${td?'▼':d}</div>`; }
+  for(let d=VSTART;d<=VEND;d++){const we=isWeekend(d),td=d===todayD;days+=`<div class="gantt-day${we?' weekend':''}${td?' today':''}" style="--td:${VDAYS}">${td?'▼':d}</div>`;}
 
-  let html=`<div class="gantt-header" style="--td:${TOTAL}"><div class="gantt-header-left">Tarea / Responsable</div><div class="gantt-days">${days}</div></div>`;
+  let html=`<div class="gantt-header" style="--td:${VDAYS}"><div class="gantt-header-left">Tarea / Responsable</div><div class="gantt-days">${days}</div></div>`;
   if(!filtered.length){ html+='<div class="empty-msg">Sin tareas para este filtro</div>'; }
 
   Object.entries(groups).forEach(([key,tasks])=>{
@@ -864,17 +899,22 @@ function renderGantt(){
     tasks.forEach(t=>{
       const st=getStatus(t.id);
       const sc=wdToCalDay(t.dstart), ec=wdToCalDay(t.dend);
-      const lp=((sc-1)/TOTAL*100).toFixed(3);
-      const wp=Math.max(((ec-sc+1)/TOTAL*100),(0.5/TOTAL*100)).toFixed(3);
+      const inRange=ec>=VSTART&&sc<=VEND;
+      const visS=Math.max(sc,VSTART), visE=Math.min(ec,VEND);
+      const lp=inRange?((visS-VSTART)/VDAYS*100).toFixed(3):'0';
+      const wp=inRange?Math.max(((visE-visS+1)/VDAYS*100),(0.5/VDAYS*100)).toFixed(3):'0';
       const delay=getDelay(t.id);
       const taskDeps=DEPS[t.id]||[];
       const blocking=taskDeps.filter(d=>getStatus(d)!=='done');
       const depNames=taskDeps.map(d=>{const dt=TASKS.find(x=>x.id===d);return dt?dt.name.slice(0,22):'?';}).join(', ');
       let stripes='';
-      for(let d=1;d<=TOTAL;d++) if(isWeekend(d)) stripes+=`<div class="we-stripe" style="left:${((d-1)/TOTAL*100).toFixed(1)}%;width:${(1/TOTAL*100).toFixed(1)}%"></div>`;
+      for(let d=VSTART;d<=VEND;d++) if(isWeekend(d)) stripes+=`<div class="we-stripe" style="left:${((d-VSTART)/VDAYS*100).toFixed(1)}%;width:${(1/VDAYS*100).toFixed(1)}%"></div>`;
       const tl=todayPct>0?`<div class="today-line" style="left:${todayPct}%"></div>`:'';
-      const dTag=delay>0?`<div class="delay-tag">+${delay}d</div>`:'';
+      const dTag=delay>0&&inRange?`<div class="delay-tag">+${delay}d</div>`:'';
       const aname=PEOPLE[t.assign]?.name||t.assignName||t.assign;
+      const outIndicator=!inRange?(ec<VSTART
+        ?`<div style="position:absolute;left:4px;top:50%;transform:translateY(-50%);font-size:9px;color:var(--text3);font-family:'DM Mono',monospace;white-space:nowrap">◄ D${t.dstart}–${t.dend}</div>`
+        :`<div style="position:absolute;right:4px;top:50%;transform:translateY(-50%);font-size:9px;color:var(--text3);font-family:'DM Mono',monospace;white-space:nowrap">D${t.dstart}–${t.dend} ►</div>`):'';
 
       html+=`<div class="gantt-row${st==='late'?' is-late':''}">
         <div class="task-left">
@@ -892,9 +932,9 @@ function renderGantt(){
           onmouseenter="showTip(event,${t.id},'${st}','${depNames.replace(/'/g,'')}')"
           onmouseleave="hideTip()">
           ${stripes}${tl}${dTag}
-          <div class="task-bar ${SB[st]}" style="left:${lp}%;width:${wp}%;min-width:8px"
+          ${inRange?`<div class="task-bar ${SB[st]}" style="left:${lp}%;width:${wp}%;min-width:8px"
             onmouseenter="showTip(event,${t.id},'${st}','${depNames.replace(/'/g,'')}')"
-            onmouseleave="hideTip()"><span>${SL[st]}</span></div>
+            onmouseleave="hideTip()"><span>${SL[st]}</span></div>`:outIndicator}
         </div></div>
       </div>`;
     });
@@ -904,6 +944,8 @@ function renderGantt(){
 }
 
 function togglePhase(key){ if(collapsedPhases.has(key)) collapsedPhases.delete(key); else collapsedPhases.add(key); renderGantt(); }
+function setZoom(days){ viewDays=days; if(days){const TOTAL=getMonthDays(),todayD=getTodayDay();viewStart=todayD>0?Math.max(1,Math.min(todayD-Math.floor(days/2),TOTAL-days+1)):1;} renderGantt(); }
+function navZoom(dir){ if(!viewDays)return; const TOTAL=getMonthDays(); viewStart=Math.max(1,Math.min(viewStart+dir*viewDays,TOTAL-viewDays+1)); renderGantt(); }
 
 function showTip(e,id,st,depNames){
   const t=TASKS.find(x=>x.id===id); if(!t) return;
