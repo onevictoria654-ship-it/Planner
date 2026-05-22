@@ -849,7 +849,7 @@ function renderGantt(){
     const isCollapsed=collapsedPhases.has(key);
     const tc=tC[team]||'var(--text2)',tb=tB[team]||'var(--surface2)';
     const doneCount=tasks.filter(t=>getStatus(t.id)==='done').length;
-    const maxH=tasks.length*44+10;
+    const maxH=tasks.length*200;
 
     html+=`<div class="gantt-section" style="background:${tb}" onclick="togglePhase('${key.replace(/\\/g,'\\\\').replace(/'/g,"\\'")}')">
       <div class="gantt-section-label" style="color:${tc}">
@@ -1039,7 +1039,7 @@ function renderHorario(){
   function section(id,title,tasks,color){
     const stored=sessionStorage.getItem('horario_'+id);
     const isCollapsed=stored==='collapsed';
-    const maxH=tasks.length*37+50;
+    const maxH=tasks.length*150;
     return `<div class="horario-section">
       <div class="horario-section-head" onclick="toggleHorarioSection('${id}')">
         <span class="horario-toggle${isCollapsed?' collapsed':''}">▼</span>
