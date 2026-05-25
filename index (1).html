@@ -426,6 +426,14 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);fon
     </div>
     <div class="admin-section">
       <div class="admin-section-head">
+        <span class="admin-section-title">🔌 Diagnóstico de conexión</span>
+        <button class="btn" onclick="testConnection()">▶ Probar ahora</button>
+      </div>
+      <div id="diagResult" style="padding:12px 16px;font-size:12px;font-family:'DM Mono',monospace;color:var(--text2);line-height:1.7;display:none"></div>
+    </div>
+
+    <div class="admin-section">
+      <div class="admin-section-head">
         <span class="admin-section-title">📋 Tareas</span>
         <div style="display:flex;gap:8px;align-items:center">
           <input id="adminSearch" placeholder="Buscar…" oninput="renderAdminTasks()"
@@ -743,10 +751,16 @@ async function initApp() {
   showLoading('Cargando datos…');
   try {
     const res = await gsCall('getAll');
-    if(res.ok && res.data) {
-      applyData(res.data);
-      if(!res.data.tasks || res.data.tasks.length===0) await seedData();
+    // Support both response formats:
+    // New: { ok:true, data:{ tasks, people, ... } }
+    // Old: { ok:true, tasks:[...], people:[...], ... }
+    const data = res.ok ? (res.data != null ? res.data : (Array.isArray(res.tasks) ? res : null)) : null;
+    if(data) {
+      applyData(data);
+      if(!data.tasks || data.tasks.length===0) await seedData();
     } else {
+      console.warn('[Planner] getAll falló:', JSON.stringify(res).slice(0,200));
+      showToast('⚠ No se pudieron cargar datos. Verifica el Apps Script.', 8000, true);
       await seedData();
     }
     hideLoading();
@@ -805,7 +819,8 @@ function startPolling() {
   pollTimer = setInterval(async()=>{
     try {
       const res = await gsCall('getAll');
-      if(res.ok&&res.data){ applyData(res.data); document.getElementById('onlineTxt').textContent='Act. '+new Date().toLocaleTimeString('es-PE',{hour:'2-digit',minute:'2-digit'}); }
+      const data = res.ok ? (res.data != null ? res.data : (Array.isArray(res.tasks) ? res : null)) : null;
+      if(data){ applyData(data); document.getElementById('onlineTxt').textContent='Act. '+new Date().toLocaleTimeString('es-PE',{hour:'2-digit',minute:'2-digit'}); }
     } catch(e){ document.getElementById('onlineTxt').textContent='Sin conexión'; }
   }, 20000);
 }
@@ -1214,6 +1229,44 @@ function openPersonModal(key){ editingPersonKey=key;const p=key?PEOPLE[key]:null
 async function savePerson(){ const k=document.getElementById('pKey').value.trim().replace(/\s+/g,''),name=document.getElementById('pName').value.trim(),team=document.getElementById('pTeam').value;if(!k||!name){alert('Completa todos los campos');return;} showLoading('Guardando…');if(!isOffline){try{await gsCall('upsertPerson',{key:k,name,team});}catch(e){}}PEOPLE[k]={name,team};if(editingPersonKey===k)TASKS.filter(t=>t.assign===k).forEach(t=>{t.assignName=name;});hideLoading();closeModal('personModal');renderAll();showToast('✓ Persona guardada: '+name); }
 async function deletePerson(){ if(!editingPersonKey||!confirm(`¿Eliminar a ${PEOPLE[editingPersonKey]?.name}?`))return;showLoading('Eliminando…');if(!isOffline){try{await gsCall('deletePerson',{key:editingPersonKey});}catch(e){}}const name=PEOPLE[editingPersonKey].name;delete PEOPLE[editingPersonKey];hideLoading();closeModal('personModal');renderAll();showToast('🗑 Eliminado: '+name); }
 async function confirmDeletePerson(k){ editingPersonKey=k;await deletePerson(); }
+
+async function testConnection(){
+  const box = document.getElementById('diagResult');
+  box.style.display = 'block';
+  box.innerHTML = '⏳ Consultando Apps Script…';
+  try {
+    const raw = await fetch(GS_URL + '?action=getAll', {
+      method:'POST', body:'{}', headers:{'Content-Type':'text/plain'}
+    });
+    const text = await raw.text();
+    let res;
+    try { res = JSON.parse(text); } catch(e) { res = null; }
+    if(!res) {
+      box.innerHTML = '❌ Respuesta no es JSON válido.<br>Primeros 300 chars:<br>' + text.slice(0,300).replace(/</g,'&lt;');
+      return;
+    }
+    const fmt = res.data != null ? 'NUEVO (ok+data)' : (Array.isArray(res.tasks) ? 'VIEJO (spread)' : 'DESCONOCIDO');
+    const src  = res.data || (Array.isArray(res.tasks) ? res : {});
+    const lines = [
+      `ok: ${res.ok}`,
+      `Formato: ${fmt}`,
+      `Tareas: ${(src.tasks||[]).length}`,
+      `Personas: ${(src.people||[]).length}`,
+      `Deps: ${(src.deps||[]).length}`,
+      `Statuses: ${(src.statuses||[]).length}`,
+      `Timestamps: ${(src.timestamps||[]).length}`,
+      res.error ? `Error: ${res.error}` : '',
+    ].filter(Boolean);
+    box.innerHTML = (res.ok ? '✅ ' : '❌ ') + lines.join('<br>');
+    if(res.ok && src.tasks && src.tasks.length > 0){
+      const data = res.data || res;
+      applyData(data);
+      showToast('✓ Datos recargados desde Apps Script: ' + src.tasks.length + ' tareas');
+    }
+  } catch(e) {
+    box.innerHTML = '❌ Error de red: ' + e.message;
+  }
+}
 
 function exportCSV(){ const rows=[['ID','Equipo','Fase','Tarea','Responsable','Día inicio','Día fin','H.Esp','Estado','Atraso días','Ts Inicio','Ts Fin']]; TASKS.forEach(t=>{const ts=TIMESTAMPS[t.id]||{};rows.push([t.id,t.team,t.phase,`"${t.name}"`,PEOPLE[t.assign]?.name||t.assignName,t.dstart,t.dend,t.horas||'',SL[getStatus(t.id)],getDelay(t.id),ts.ts_inicio||'',ts.ts_fin||'']);}); const csv=rows.map(r=>r.join(',')).join('\n'),a=document.createElement('a');a.href=URL.createObjectURL(new Blob(['\ufeff'+csv],{type:'text/csv;charset=utf-8'}));a.download=`planner_cierre_${currentMonth}.csv`;a.click(); }
 
